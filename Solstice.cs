@@ -19,9 +19,9 @@ namespace SolsticeCommand
 {
     public class SolsticeWindow : Window
     {
-        private TextBlock lblApacheState, lblMysqlState, lblMariaState, lblFooter, lblProjCount;
+        private TextBlock lblApacheState, lblMysqlState, lblMariaState, lblFooter, lblProjCount, lblStackType;
         private Border badgeApache, badgeMysql, badgeMaria;
-        private Button btnStart, btnStop, btnRestart, btnOpenWeb, btnOpenPma;
+        private Button btnStart, btnStop, btnRestart, btnOpenWeb, btnOpenPma, btnDeployUi, btnEnvCheck;
         private TextBox txtSearch;
         private StackPanel projectListPanel;
         private DispatcherTimer pollTimer;
@@ -30,6 +30,12 @@ namespace SolsticeCommand
         private System.Drawing.Icon icoOnline, icoPartial, icoOffline;
         private bool isQuitting = false;
         private List<string> allProjects = new List<string>();
+
+        // Auto-detected Stack State (WAMP or XAMPP)
+        private string stackMode = "WAMP"; // "WAMP" or "XAMPP" or "NONE"
+        private string stackRoot = @"C:\wamp64";
+        private string webRoot = @"C:\wamp64\www";
+        private string baseUrl = "http://localhost/";
 
         // Obsidian & Midnight Electric Blue Palette
         private static System.Windows.Media.Color C(byte r, byte g, byte b) { return System.Windows.Media.Color.FromRgb(r, g, b); }
@@ -46,18 +52,27 @@ namespace SolsticeCommand
         private SolidColorBrush BrushGreen = new SolidColorBrush(C(74, 222, 128));
         private SolidColorBrush BrushGreenBg = new SolidColorBrush(CA(28, 34, 197, 94));
         private SolidColorBrush BrushOffBg = new SolidColorBrush(CA(35, 71, 85, 105));
-        private SolidColorBrush BrushRed = new SolidColorBrush(C(248, 113, 113));
 
         public SolsticeWindow()
         {
-            Title = "SOLSTICE // Local Command";
-            Width = 760;
-            Height = 470;
+            Title = "SOLSTICE GRID // Local Server";
+            Width = 780;
+            Height = 490;
             WindowStyle = WindowStyle.None;
             AllowsTransparency = true;
             Background = System.Windows.Media.Brushes.Transparent;
             ResizeMode = ResizeMode.NoResize;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+            DetectStack();
+
+            try
+            {
+                string icoFile = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "solstice.ico");
+                if (File.Exists(icoFile))
+                    Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri(icoFile));
+            }
+            catch { }
 
             InitTray();
             Content = BuildRootUI();
@@ -78,21 +93,77 @@ namespace SolsticeCommand
             };
         }
 
+        private void DetectStack()
+        {
+            string[] wampPaths = new string[] { @"C:\wamp64", @"D:\wamp64", @"C:\wamp", @"D:\wamp" };
+            foreach (var p in wampPaths)
+            {
+                if (Directory.Exists(System.IO.Path.Combine(p, "www")))
+                {
+                    stackMode = "WAMP";
+                    stackRoot = p;
+                    webRoot = System.IO.Path.Combine(p, "www");
+                    break;
+                }
+            }
+            if (stackMode != "WAMP")
+            {
+                string[] xamppPaths = new string[] { @"C:\xampp", @"D:\xampp" };
+                foreach (var p in xamppPaths)
+                {
+                    if (Directory.Exists(System.IO.Path.Combine(p, "htdocs")))
+                    {
+                        stackMode = "XAMPP";
+                        stackRoot = p;
+                        webRoot = System.IO.Path.Combine(p, "htdocs");
+                        break;
+                    }
+                }
+            }
+            if (!Directory.Exists(webRoot))
+            {
+                stackMode = "NONE";
+            }
+
+            try
+            {
+                string hostsFile = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"drivers\etc\hosts");
+                if (File.Exists(hostsFile) && File.ReadAllText(hostsFile).Contains("solstice.local"))
+                    baseUrl = "http://solstice.local/";
+                else
+                    baseUrl = "http://localhost/";
+            }
+            catch { baseUrl = "http://localhost/"; }
+        }
+
         private System.Drawing.Icon CreateEclipseIcon(System.Drawing.Color ringColor)
         {
             var bmp = new Bitmap(32, 32);
             using (var g = Graphics.FromImage(bmp))
             {
                 g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
                 g.Clear(System.Drawing.Color.FromArgb(5, 8, 17));
-                using (var border = new System.Drawing.Pen(System.Drawing.Color.FromArgb(30, 58, 138), 2))
-                    g.DrawRectangle(border, 1, 1, 29, 29);
+                string logoFile = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "solstice_logo.png");
+                if (File.Exists(logoFile))
+                {
+                    using (var src = new Bitmap(logoFile))
+                    using (var scaled = new Bitmap(src, 28, 28))
+                    {
+                        for (int y = 0; y < 28; y++)
+                        {
+                            for (int x = 0; x < 28; x++)
+                            {
+                                var p = scaled.GetPixel(x, y);
+                                if (p.A > 20)
+                                    bmp.SetPixel(x + 2, y + 2, System.Drawing.Color.FromArgb(p.A, ringColor.R, ringColor.G, ringColor.B));
+                            }
+                        }
+                    }
+                    return System.Drawing.Icon.FromHandle(bmp.GetHicon());
+                }
                 using (var pen = new System.Drawing.Pen(ringColor, 3f))
                     g.DrawEllipse(pen, 6, 6, 20, 20);
-                using (var cut = new SolidBrush(System.Drawing.Color.FromArgb(5, 8, 17)))
-                    g.FillEllipse(cut, 10, 4, 16, 16);
-                using (var line = new System.Drawing.Pen(System.Drawing.Color.FromArgb(170, ringColor), 1.5f))
-                    g.DrawLine(line, 3, 16, 29, 16);
             }
             return System.Drawing.Icon.FromHandle(bmp.GetHicon());
         }
@@ -104,15 +175,15 @@ namespace SolsticeCommand
             icoOffline = CreateEclipseIcon(System.Drawing.Color.FromArgb(239, 68, 68));
 
             var menu = new WinForms.ContextMenuStrip();
-            menu.Items.Add("Open Solstice Command", null, (s, e) => RestoreWindow());
+            menu.Items.Add("Open Solstice Grid", null, (s, e) => RestoreWindow());
             menu.Items.Add("-");
             menu.Items.Add("Initialize Stack (Start)", null, async (s, e) => await RunServiceAction("start"));
             menu.Items.Add("Terminate Stack (Stop)", null, async (s, e) => await RunServiceAction("stop"));
             menu.Items.Add("-");
-            menu.Items.Add("Open http://solstice.local/", null, (s, e) => OpenUrl("http://solstice.local/"));
-            menu.Items.Add("Open phpMyAdmin", null, (s, e) => OpenUrl("http://solstice.local/phpmyadmin/"));
+            menu.Items.Add("Open Dashboard", null, (s, e) => OpenUrl(baseUrl));
+            menu.Items.Add("Open phpMyAdmin", null, (s, e) => OpenUrl(baseUrl + "phpmyadmin/"));
             menu.Items.Add("-");
-            menu.Items.Add("Quit Solstice", null, (s, e) =>
+            menu.Items.Add("Quit Solstice Grid", null, (s, e) =>
             {
                 isQuitting = true;
                 trayIcon.Visible = false;
@@ -123,7 +194,7 @@ namespace SolsticeCommand
             trayIcon = new WinForms.NotifyIcon
             {
                 Icon = icoOffline,
-                Text = "SOLSTICE // Local Command",
+                Text = "SOLSTICE GRID // Local Server",
                 Visible = true,
                 ContextMenuStrip = menu
             };
@@ -170,6 +241,14 @@ namespace SolsticeCommand
             var topBar = new Grid { Background = System.Windows.Media.Brushes.Transparent };
             topBar.MouseLeftButtonDown += (s, e) => { if (e.ButtonState == MouseButtonState.Pressed) DragMove(); };
 
+            lblStackType = new TextBlock
+            {
+                Text = string.Format("SOLSTICE GRID  //  {0} ({1})", stackMode, stackRoot),
+                FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+                FontSize = 10,
+                FontWeight = FontWeights.Bold,
+                Foreground = BrushCyan
+            };
             var pillBadge = new Border
             {
                 HorizontalAlignment = HorizontalAlignment.Left,
@@ -180,14 +259,7 @@ namespace SolsticeCommand
                 Background = new SolidColorBrush(CA(24, 56, 189, 248)),
                 BorderBrush = new SolidColorBrush(CA(70, 56, 189, 248)),
                 BorderThickness = new Thickness(1),
-                Child = new TextBlock
-                {
-                    Text = "LOCAL COMMAND  //  SOLSTICE.LOCAL",
-                    FontFamily = new System.Windows.Media.FontFamily("Consolas"),
-                    FontSize = 10,
-                    FontWeight = FontWeights.Bold,
-                    Foreground = BrushCyan
-                }
+                Child = lblStackType
             };
 
             var winControls = new StackPanel
@@ -211,7 +283,7 @@ namespace SolsticeCommand
 
             // Main 2-Column Content
             var bodyGrid = new Grid { Margin = new Thickness(22, 2, 22, 20) };
-            bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(360) });
+            bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(370) });
             bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
             bodyGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
@@ -233,13 +305,11 @@ namespace SolsticeCommand
         {
             var stack = new StackPanel();
 
-            // Custom Vector Geometric SOLSTICE Wordmark + Eclipse Crest
-            var logoRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 18) };
+            var logoRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 16) };
             logoRow.Children.Add(BuildEclipseCrest());
-            logoRow.Children.Add(BuildSolsticeVectorWordmark());
+            logoRow.Children.Add(BuildSolsticeWordmark());
             stack.Children.Add(logoRow);
 
-            // Service Status Card
             var card = new Border
             {
                 Background = BrushSurface,
@@ -247,17 +317,21 @@ namespace SolsticeCommand
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(10),
                 Padding = new Thickness(14, 12, 14, 12),
-                Margin = new Thickness(0, 0, 0, 14)
+                Margin = new Thickness(0, 0, 0, 12)
             };
             var cardStack = new StackPanel();
-            cardStack.Children.Add(MakeServiceRow("APACHE ENGINE", "wampapache64", out lblApacheState, out badgeApache, false));
-            cardStack.Children.Add(MakeServiceRow("MYSQL SERVER", "wampmysqld64", out lblMysqlState, out badgeMysql, false));
-            cardStack.Children.Add(MakeServiceRow("MARIADB SERVER", "wampmariadb64", out lblMariaState, out badgeMaria, true));
+            string aLabel = stackMode == "XAMPP" ? "Apache2.4 / httpd.exe" : "wampapache64";
+            string mLabel = stackMode == "XAMPP" ? "mysql / mysqld.exe" : "wampmysqld64";
+            string dLabel = stackMode == "XAMPP" ? "N/A (Uses MySQL)" : "wampmariadb64";
+
+            cardStack.Children.Add(MakeServiceRow("APACHE ENGINE", aLabel, out lblApacheState, out badgeApache, false));
+            cardStack.Children.Add(MakeServiceRow("MYSQL SERVER", mLabel, out lblMysqlState, out badgeMysql, false));
+            cardStack.Children.Add(MakeServiceRow("MARIADB SERVER", dLabel, out lblMariaState, out badgeMaria, true));
             card.Child = cardStack;
             stack.Children.Add(card);
 
-            // Primary Controls Row
-            var row1 = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            // Row 1: Start / Stop
+            var row1 = new Grid { Margin = new Thickness(0, 0, 0, 8) };
             row1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
             row1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -272,20 +346,20 @@ namespace SolsticeCommand
             row1.Children.Add(btnStop);
             stack.Children.Add(row1);
 
-            // Secondary Controls Row
-            var row2 = new Grid { Margin = new Thickness(0, 0, 0, 14) };
-            row2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+            // Row 2: Restart / Dashboard / phpMyAdmin
+            var row2 = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            row2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
             row2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
             row2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
             row2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(108) });
 
             btnRestart = MakeActionBtn("RESTART", false);
-            btnOpenWeb = MakeActionBtn("SOLSTICE.LOCAL", true);
+            btnOpenWeb = MakeActionBtn(baseUrl.Contains("solstice.local") ? "SOLSTICE.LOCAL" : "LOCALHOST", true);
             btnOpenPma = MakeActionBtn("PHPMYADMIN", false);
             btnRestart.Click += async (s, e) => await RunServiceAction("restart");
-            btnOpenWeb.Click += (s, e) => OpenUrl("http://solstice.local/");
-            btnOpenPma.Click += (s, e) => OpenUrl("http://solstice.local/phpmyadmin/");
+            btnOpenWeb.Click += (s, e) => OpenUrl(baseUrl);
+            btnOpenPma.Click += (s, e) => OpenUrl(baseUrl + "phpmyadmin/");
 
             Grid.SetColumn(btnRestart, 0);
             Grid.SetColumn(btnOpenWeb, 2);
@@ -295,12 +369,29 @@ namespace SolsticeCommand
             row2.Children.Add(btnOpenPma);
             stack.Children.Add(row2);
 
+            // Row 3: Portable Toolkit (Deploy Web UI to Friend's WAMP/XAMPP + Env Check)
+            var row3 = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+            row3.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row3.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+            row3.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+
+            btnDeployUi = MakeActionBtn("DEPLOY SOLSTICE WEB UI", false);
+            btnEnvCheck = MakeActionBtn("CHECK ENV", false);
+            btnDeployUi.Click += (s, e) => DeployDashboardToWebRoot();
+            btnEnvCheck.Click += async (s, e) => await RunEnvCheck();
+            Grid.SetColumn(btnDeployUi, 0);
+            Grid.SetColumn(btnEnvCheck, 2);
+            row3.Children.Add(btnDeployUi);
+            row3.Children.Add(btnEnvCheck);
+            stack.Children.Add(row3);
+
             lblFooter = new TextBlock
             {
-                Text = "STANDBY  //  ZERO TERMINAL MODE",
+                Text = "STANDBY  //  PORTABLE SYMBIOTE READY",
                 FontFamily = new System.Windows.Media.FontFamily("Consolas"),
-                FontSize = 10.5,
-                Foreground = BrushMuted
+                FontSize = 10,
+                Foreground = BrushMuted,
+                TextWrapping = TextWrapping.Wrap
             };
             stack.Children.Add(lblFooter);
 
@@ -309,87 +400,57 @@ namespace SolsticeCommand
 
         private UIElement BuildEclipseCrest()
         {
-            var canvas = new Canvas { Width = 38, Height = 38, Margin = new Thickness(0, 0, 12, 0) };
-            var ring = new Ellipse
+            string logoFile = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "solstice_logo.png");
+            if (File.Exists(logoFile))
             {
-                Width = 32,
-                Height = 32,
-                Stroke = BrushCyan,
-                StrokeThickness = 2.6
-            };
-            Canvas.SetLeft(ring, 3);
-            Canvas.SetTop(ring, 3);
-
-            var cut = new Ellipse
-            {
-                Width = 24,
-                Height = 24,
-                Fill = BrushObsidian
-            };
-            Canvas.SetLeft(cut, 10);
-            Canvas.SetTop(cut, 1);
-
-            var slash = new Line
-            {
-                X1 = 1, Y1 = 19, X2 = 37, Y2 = 19,
-                Stroke = new SolidColorBrush(CA(160, 56, 189, 248)),
-                StrokeThickness = 1.4
-            };
-
-            canvas.Children.Add(ring);
-            canvas.Children.Add(cut);
-            canvas.Children.Add(slash);
-            return canvas;
+                var bi = new System.Windows.Media.Imaging.BitmapImage(new Uri(logoFile));
+                return new System.Windows.Controls.Image
+                {
+                    Source = bi,
+                    Width = 44,
+                    Height = 44,
+                    Margin = new Thickness(0, 0, 12, 0),
+                    Stretch = Stretch.Uniform
+                };
+            }
+            return new Canvas { Width = 38, Height = 38, Margin = new Thickness(0, 0, 12, 0) };
         }
 
-        private UIElement BuildSolsticeVectorWordmark()
+        private UIElement BuildSolsticeWordmark()
         {
-            // Sharp cyber-minimalist geometric vector glyphs for "SOLSTICE"
-            // Coordinate space: height 24, sharp 2.6px stroke
-            string glyphData =
-                // S
-                "M 2,20 L 14,20 L 17,17 L 17,13 L 14,11 L 4,11 L 2,9 L 2,5 L 5,2 L 17,2 " +
-                // O
-                "M 27,2 L 38,2 L 41,5 L 41,17 L 38,20 L 27,20 L 24,17 L 24,5 Z " +
-                // L
-                "M 49,2 L 49,20 L 63,20 " +
-                // S
-                "M 70,20 L 82,20 L 85,17 L 85,13 L 82,11 L 72,11 L 70,9 L 70,5 L 73,2 L 85,2 " +
-                // T
-                "M 91,2 L 107,2 M 99,2 L 99,20 " +
-                // I
-                "M 115,2 L 115,20 " +
-                // C
-                "M 138,5 L 135,2 L 126,2 L 123,5 L 123,17 L 126,20 L 135,20 L 138,17 " +
-                // E
-                "M 161,2 L 146,2 L 146,20 L 161,20 M 146,11 L 158,11";
-
-            var path = new System.Windows.Shapes.Path
+            var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            string wmFile = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "solstice_wordmark.png");
+            if (File.Exists(wmFile))
             {
-                Data = Geometry.Parse(glyphData),
-                Stroke = BrushText,
-                StrokeThickness = 2.6,
-                StrokeStartLineCap = PenLineCap.Square,
-                StrokeEndLineCap = PenLineCap.Square,
-                StrokeLineJoin = PenLineJoin.Miter,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-
-            var wrap = new Viewbox
-            {
-                Height = 24,
-                Stretch = Stretch.Uniform,
-                VerticalAlignment = VerticalAlignment.Center,
-                Child = path,
-                Effect = new DropShadowEffect
+                var bi = new System.Windows.Media.Imaging.BitmapImage(new Uri(wmFile));
+                row.Children.Add(new System.Windows.Controls.Image
                 {
-                    Color = C(56, 189, 248),
-                    BlurRadius = 10,
-                    ShadowDepth = 0,
-                    Opacity = 0.35
+                    Source = bi,
+                    Height = 36,
+                    Stretch = Stretch.Uniform,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+            }
+            var gridBadge = new Border
+            {
+                Margin = new Thickness(10, 0, 0, 10),
+                Padding = new Thickness(7, 2, 7, 2),
+                CornerRadius = new CornerRadius(4),
+                VerticalAlignment = VerticalAlignment.Center,
+                Background = new SolidColorBrush(CA(28, 56, 189, 248)),
+                BorderBrush = new SolidColorBrush(CA(110, 56, 189, 248)),
+                BorderThickness = new Thickness(1),
+                Child = new TextBlock
+                {
+                    Text = "GRID",
+                    FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+                    FontSize = 10.5,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = BrushCyan
                 }
             };
-            return wrap;
+            row.Children.Add(gridBadge);
+            return row;
         }
 
         private UIElement MakeServiceRow(string title, string svc, out TextBlock stateLbl, out Border badge, bool isLast)
@@ -450,11 +511,10 @@ namespace SolsticeCommand
             g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-            // Header
             var head = new Grid { Margin = new Thickness(0, 0, 0, 10) };
             head.Children.Add(new TextBlock
             {
-                Text = "PROJECTS  //  WWW",
+                Text = stackMode == "XAMPP" ? "PROJECTS  //  HTDOCS" : "PROJECTS  //  WWW",
                 FontFamily = new System.Windows.Media.FontFamily("Consolas"),
                 FontSize = 11,
                 FontWeight = FontWeights.Bold,
@@ -496,7 +556,6 @@ namespace SolsticeCommand
             Grid.SetRow(head, 0);
             g.Children.Add(head);
 
-            // Search Input
             var searchBorder = new Border
             {
                 Background = BrushObsidian,
@@ -519,11 +578,7 @@ namespace SolsticeCommand
             Grid.SetRow(searchBorder, 1);
             g.Children.Add(searchBorder);
 
-            // Scrollable Project Buttons
-            var scroll = new ScrollViewer
-            {
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
-            };
+            var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             projectListPanel = new StackPanel();
             scroll.Content = projectListPanel;
             Grid.SetRow(scroll, 2);
@@ -536,14 +591,16 @@ namespace SolsticeCommand
         private void LoadProjects()
         {
             allProjects.Clear();
-            string www = @"C:\wamp64\www";
-            if (Directory.Exists(www))
+            if (Directory.Exists(webRoot))
             {
-                foreach (var dir in Directory.GetDirectories(www))
+                foreach (var dir in Directory.GetDirectories(webRoot))
                 {
                     string name = System.IO.Path.GetFileName(dir);
                     if (name.Equals("wamplangues", StringComparison.OrdinalIgnoreCase) ||
-                        name.Equals("wampthemes", StringComparison.OrdinalIgnoreCase))
+                        name.Equals("wampthemes", StringComparison.OrdinalIgnoreCase) ||
+                        name.Equals("dashboard", StringComparison.OrdinalIgnoreCase) ||
+                        name.Equals("img", StringComparison.OrdinalIgnoreCase) ||
+                        name.Equals("webalizer", StringComparison.OrdinalIgnoreCase))
                         continue;
                     allProjects.Add(name);
                 }
@@ -596,7 +653,7 @@ namespace SolsticeCommand
                     VerticalAlignment = VerticalAlignment.Center
                 });
                 btn.Content = row;
-                btn.Click += (s, e) => OpenUrl("http://solstice.local/" + Uri.EscapeDataString(projName) + "/");
+                btn.Click += (s, e) => OpenUrl(baseUrl + Uri.EscapeDataString(projName) + "/");
                 projectListPanel.Children.Add(btn);
             }
             lblProjCount.Text = string.Format("{0} APPS", shown);
@@ -630,18 +687,17 @@ namespace SolsticeCommand
             var normalBg = primary ? new SolidColorBrush(C(17, 36, 76)) : BrushSurface;
             var hoverBg = primary ? new SolidColorBrush(C(25, 52, 108)) : BrushSurfaceHover;
             var border = primary ? BrushBlue : BrushBorder;
-            var btn = new Button
+            return new Button
             {
                 Content = text,
-                Height = 36,
+                Height = 34,
                 Foreground = primary ? BrushCyan : BrushText,
-                FontSize = 11,
+                FontSize = 10.5,
                 FontWeight = FontWeights.Bold,
                 Cursor = Cursors.Hand,
                 BorderThickness = new Thickness(1),
                 Style = MakeFlatButtonStyle(normalBg, hoverBg, border, BrushCyan)
             };
-            return btn;
         }
 
         private Style MakeFlatButtonStyle(System.Windows.Media.Brush bg, System.Windows.Media.Brush hoverBg, System.Windows.Media.Brush border, System.Windows.Media.Brush hoverBorder)
@@ -672,14 +728,20 @@ namespace SolsticeCommand
             return style;
         }
 
-        private bool IsServiceRunning(string svcName)
+        private bool IsServiceOrProcRunning(string svcName, string procFallback)
         {
             try
             {
                 using (var sc = new ServiceController(svcName))
-                    return sc.Status == ServiceControllerStatus.Running;
+                    if (sc.Status == ServiceControllerStatus.Running) return true;
             }
-            catch { return false; }
+            catch { }
+            if (!string.IsNullOrEmpty(procFallback))
+            {
+                try { if (Process.GetProcessesByName(procFallback).Length > 0) return true; }
+                catch { }
+            }
+            return false;
         }
 
         private void UpdateBadge(TextBlock lbl, Border badge, bool running)
@@ -700,9 +762,15 @@ namespace SolsticeCommand
 
         private void RefreshStatuses()
         {
-            bool a = IsServiceRunning("wampapache64");
-            bool m = IsServiceRunning("wampmysqld64");
-            bool d = IsServiceRunning("wampmariadb64");
+            bool a = stackMode == "XAMPP"
+                ? IsServiceOrProcRunning("Apache2.4", "httpd")
+                : IsServiceOrProcRunning("wampapache64", "httpd");
+            bool m = stackMode == "XAMPP"
+                ? IsServiceOrProcRunning("mysql", "mysqld")
+                : IsServiceOrProcRunning("wampmysqld64", null);
+            bool d = stackMode == "XAMPP"
+                ? false
+                : IsServiceOrProcRunning("wampmariadb64", null);
 
             UpdateBadge(lblApacheState, badgeApache, a);
             UpdateBadge(lblMysqlState, badgeMysql, m);
@@ -711,17 +779,17 @@ namespace SolsticeCommand
             if (a && (m || d))
             {
                 trayIcon.Icon = icoOnline;
-                trayIcon.Text = "SOLSTICE // ONLINE";
+                trayIcon.Text = "SOLSTICE GRID // ONLINE";
             }
             else if (a || m || d)
             {
                 trayIcon.Icon = icoPartial;
-                trayIcon.Text = "SOLSTICE // PARTIAL";
+                trayIcon.Text = "SOLSTICE GRID // PARTIAL";
             }
             else
             {
                 trayIcon.Icon = icoOffline;
-                trayIcon.Text = "SOLSTICE // OFFLINE";
+                trayIcon.Text = "SOLSTICE GRID // OFFLINE";
             }
         }
 
@@ -734,26 +802,119 @@ namespace SolsticeCommand
 
             await Task.Run(() =>
             {
-                if (mode == "stop" || mode == "restart")
+                if (stackMode == "WAMP")
                 {
-                    StopSvc("wampapache64");
-                    StopSvc("wampmysqld64");
-                    StopSvc("wampmariadb64");
+                    if (mode == "stop" || mode == "restart")
+                    {
+                        StopSvc("wampapache64");
+                        StopSvc("wampmysqld64");
+                        StopSvc("wampmariadb64");
+                    }
+                    if (mode == "start" || mode == "restart")
+                    {
+                        StartSvc("wampapache64");
+                        StartSvc("wampmysqld64");
+                    }
                 }
-                if (mode == "start" || mode == "restart")
+                else if (stackMode == "XAMPP")
                 {
-                    StartSvc("wampapache64");
-                    StartSvc("wampmysqld64");
+                    if (mode == "stop" || mode == "restart")
+                    {
+                        StopSvc("Apache2.4");
+                        StopSvc("mysql");
+                        KillProc("httpd");
+                        KillProc("mysqld");
+                    }
+                    if (mode == "start" || mode == "restart")
+                    {
+                        if (!StartSvc("Apache2.4"))
+                            StartHidden(System.IO.Path.Combine(stackRoot, @"apache\bin\httpd.exe"), "");
+                        if (!StartSvc("mysql"))
+                            StartHidden(System.IO.Path.Combine(stackRoot, @"mysql\bin\mysqld.exe"), "--defaults-file=" + System.IO.Path.Combine(stackRoot, @"mysql\bin\my.ini"));
+                    }
                 }
             });
 
             RefreshStatuses();
             lblFooter.Foreground = mode == "stop" ? BrushMuted : BrushGreen;
-            lblFooter.Text = mode == "stop" ? "STACK TERMINATED  //  STANDBY" : "STACK ONLINE  //  http://solstice.local/";
+            lblFooter.Text = mode == "stop" ? "STACK TERMINATED  //  STANDBY" : "STACK ONLINE  //  " + baseUrl;
             btnStart.IsEnabled = btnStop.IsEnabled = btnRestart.IsEnabled = true;
         }
 
-        private void StartSvc(string name)
+        private void DeployDashboardToWebRoot()
+        {
+            if (!Directory.Exists(webRoot))
+            {
+                lblFooter.Foreground = BrushCyan;
+                lblFooter.Text = "NO WAMP/XAMPP WEB ROOT FOUND!";
+                return;
+            }
+            try
+            {
+                string appDir = AppDomain.CurrentDomain.BaseDirectory;
+                string srcIdx = System.IO.Path.Combine(appDir, @"dashboard\index.php");
+                string dstIdx = System.IO.Path.Combine(webRoot, "index.php");
+                string bakIdx = System.IO.Path.Combine(webRoot, "index.php.orig_bak");
+
+                if (File.Exists(dstIdx) && !File.Exists(bakIdx))
+                    File.Copy(dstIdx, bakIdx, false);
+
+                if (File.Exists(srcIdx)) File.Copy(srcIdx, dstIdx, true);
+                foreach (var img in new string[] { "solstice_logo.png", "solstice_wordmark.png" })
+                {
+                    string s = System.IO.Path.Combine(appDir, img);
+                    if (File.Exists(s)) File.Copy(s, System.IO.Path.Combine(webRoot, img), true);
+                }
+
+                lblFooter.Foreground = BrushGreen;
+                lblFooter.Text = "SOLSTICE WEB UI DEPLOYED TO " + webRoot;
+            }
+            catch (Exception ex)
+            {
+                lblFooter.Foreground = BrushCyan;
+                lblFooter.Text = "DEPLOY ERROR: " + ex.Message;
+            }
+        }
+
+        private async Task RunEnvCheck()
+        {
+            lblFooter.Foreground = BrushCyan;
+            lblFooter.Text = "SCANNING PHP / COMPOSER / PYTHON / GIT / NODE...";
+            string report = await Task.Run(() =>
+            {
+                var found = new List<string>();
+                if (CheckCmd("php", "-v")) found.Add("PHP:OK"); else found.Add("PHP:--");
+                if (CheckCmd("composer", "--version")) found.Add("Composer:OK"); else found.Add("Composer:--");
+                if (CheckCmd("python", "--version")) found.Add("Python:OK"); else found.Add("Python:--");
+                if (CheckCmd("git", "--version")) found.Add("Git:OK"); else found.Add("Git:--");
+                if (CheckCmd("node", "-v")) found.Add("Node:OK"); else found.Add("Node:--");
+                return string.Join(" | ", found.ToArray());
+            });
+            lblFooter.Foreground = BrushGreen;
+            lblFooter.Text = "ENV // " + report;
+        }
+
+        private bool CheckCmd(string exe, string args)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo(exe, args)
+                {
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using (var p = Process.Start(psi))
+                {
+                    p.WaitForExit(1500);
+                    return p.ExitCode == 0;
+                }
+            }
+            catch { return false; }
+        }
+
+        private bool StartSvc(string name)
         {
             try
             {
@@ -764,9 +925,10 @@ namespace SolsticeCommand
                         sc.Start();
                         sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(15));
                     }
+                    return true;
                 }
             }
-            catch { }
+            catch { return false; }
         }
 
         private void StopSvc(string name)
@@ -782,6 +944,22 @@ namespace SolsticeCommand
                     }
                 }
             }
+            catch { }
+        }
+
+        private void StartHidden(string exe, string args)
+        {
+            try
+            {
+                if (!File.Exists(exe)) return;
+                Process.Start(new ProcessStartInfo(exe, args) { CreateNoWindow = true, UseShellExecute = false });
+            }
+            catch { }
+        }
+
+        private void KillProc(string name)
+        {
+            try { foreach (var p in Process.GetProcessesByName(name)) p.Kill(); }
             catch { }
         }
 

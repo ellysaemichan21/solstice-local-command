@@ -1,9 +1,14 @@
-﻿# SOLSTICE // Local Command
+﻿# SOLSTICE GRID // Portable Local Server Controller
 
-A sharp, minimalist dark-obsidian & midnight-blue local server controller and web dashboard built to replace WampServer's legacy UI and startup terminal popups.
+A sharp, minimalist dark-obsidian & midnight-blue controller + web dashboard that **automatically detects and upgrades existing WAMP or XAMPP installations** on any Windows PC—zero ghost terminals!
 
 ## Features
-- **Frameless Native WPF Controller (Solstice.cs):** Zero-terminal background service management for wampapache64, wampmysqld64, and wampmariadb64.
-- **Custom Vector Branding:** Geometric SOLSTICE vector wordmark + dynamic color-changing System Tray icon (Cyan = Online, Amber = Partial, Crimson = Offline).
-- **Built-in Project Launcher:** Auto-scans C:\wamp64\www with live search to launch local projects at http://solstice.local/<project>/.
-- **Redesigned Web Dashboard (dashboard/index.php):** Dark-mode PHP/Apache/MySQL/MariaDB telemetry dashboard with instant workspace filtering.
+- **Auto-Detects WAMP & XAMPP:** Automatically finds C:\wamp64, D:\wamp64, C:\xampp, D:\xampp and adapts service/process control + project scanning (www/ or htdocs/).
+- **1-Click DEPLOY SOLSTICE WEB UI:** Safely backs up the existing index.php (index.php.orig_bak) and installs the dark-mode **Solstice Grid** dashboard.
+- **1-Click CHECK ENV:** Scans the machine for PHP, Composer, Python, Git, and Node.js.
+- **Official Solstice Branding:** Custom SolsticeLogo tray icon (Cyan = Online, Amber = Partial, Crimson = Offline), frameless WPF UI, and searchable project launcher.
+
+## Quick Use on Any Friend's Laptop
+1. Download **SolsticeGrid_Portable.zip** from Releases and extract anywhere.
+2. Run **Solstice.exe**.
+3. Click **DEPLOY SOLSTICE WEB UI** ➔ **INITIALIZE STACK** ➔ **LOCALHOST**!

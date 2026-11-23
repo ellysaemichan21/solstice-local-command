@@ -50,8 +50,8 @@ usort($projects, function($a, $b) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SOLSTICE // Local Command</title>
-  <link rel="icon" type="image/svg+xml" href="/solstice-icon.svg" />
+  <title>SOLSTICE GRID // Local Server</title>
+  <link rel="icon" type="image/png" href="/solstice_logo.png" />
   <style>
     :root {
       --bg: #050811;
@@ -317,22 +317,23 @@ usort($projects, function($a, $b) {
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark">
-          <svg width="26" height="26" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="32" cy="32" r="20" fill="none" stroke="#38BDF8" stroke-width="3.5"/>
-            <circle cx="38" cy="28" r="16" fill="#070C18"/>
-            <line x1="8" y1="32" x2="56" y2="32" stroke="#38BDF8" stroke-width="2" stroke-opacity="0.6"/>
-          </svg>
+          <img src="/solstice_logo.png" alt="Solstice Logo" style="width:34px;height:34px;object-fit:contain;" />
         </div>
         <div class="brand-text">
-          <h1>Solstice</h1>
-          <div class="brand-badge"><span class="dot"></span> Local Command // <?= htmlspecialchars($hostName) ?></div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <img src="/solstice_wordmark.png" alt="SOLSTICE" style="height:30px;width:auto;object-fit:contain;" />
+            <span style="font-size:0.72rem;font-weight:800;letter-spacing:0.2em;color:#38BDF8;border:1px solid rgba(56,189,248,0.4);background:rgba(56,189,248,0.1);padding:3px 8px;border-radius:4px;">GRID</span>
+          </div>
+          <div class="brand-badge"><span class="dot"></span> Local Server // <?= htmlspecialchars($hostName) ?></div>
         </div>
       </div>
 
       <div class="actions">
         <a class="btn btn-primary" href="/phpmyadmin/" target="_blank">phpMyAdmin</a>
         <a class="btn" href="/?phpinfo=1" target="_blank">PHP Info</a>
-        <a class="btn" href="/add_vhost.php">VirtualHosts</a>
+        <?php if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'add_vhost.php')): ?>
+          <a class="btn" href="/add_vhost.php">VirtualHosts</a>
+        <?php endif; ?>
       </div>
     </header>
 
@@ -389,7 +390,7 @@ usort($projects, function($a, $b) {
     </section>
 
     <footer class="footer">
-      <span>Solstice Local Stack</span>
+      <span>Solstice Grid // Solstice Studio</span>
       <span>Root: <?= htmlspecialchars(__DIR__) ?></span>
     </footer>
   </div>
