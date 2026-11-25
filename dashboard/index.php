@@ -44,6 +44,11 @@ foreach (scandir(__DIR__) as $item) {
 usort($projects, function($a, $b) {
     return strcasecmp($a['name'], $b['name']);
 });
+$recentProjects = $projects;
+usort($recentProjects, function($a, $b) {
+    return $b['mtime'] <=> $a['mtime'];
+});
+$recentProjects = array_slice($recentProjects, 0, 4);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -369,7 +374,22 @@ usort($projects, function($a, $b) {
     </section>
 
     <div class="section-head">
-      <div class="section-title">Workspaces // <span id="projCount"><?= count($projects) ?></span> Directories</div>
+      <div class="section-title">Recent // Top 4 Active</div>
+    </div>
+    <section class="grid" style="margin-bottom: 26px;">
+      <?php foreach ($recentProjects as $rp): ?>
+        <a class="card" href="/<?= rawurlencode($rp['name']) ?>/" style="border-color: rgba(56, 189, 248, 0.35);">
+          <div class="card-top">
+            <div class="card-name"><?= htmlspecialchars($rp['name']) ?></div>
+            <span class="card-tag">Recent</span>
+          </div>
+          <div class="card-url">/<?= htmlspecialchars($rp['name']) ?>/</div>
+        </a>
+      <?php endforeach; ?>
+    </section>
+
+    <div class="section-head">
+      <div class="section-title">All Workspaces // <span id="projCount"><?= count($projects) ?></span> Directories</div>
       <input class="search-box" id="filterInput" type="text" placeholder="Filter projects..." autocomplete="off" />
     </div>
 

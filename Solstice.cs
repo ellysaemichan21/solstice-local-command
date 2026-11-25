@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.ServiceProcess;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -21,7 +22,7 @@ namespace SolsticeCommand
     {
         private TextBlock lblApacheState, lblMysqlState, lblMariaState, lblFooter, lblProjCount, lblStackType;
         private Border badgeApache, badgeMysql, badgeMaria;
-        private Button btnStart, btnStop, btnRestart, btnOpenWeb, btnOpenPma, btnDeployUi, btnEnvCheck;
+        private Button btnStart, btnStop, btnRestart, btnOpenWeb, btnOpenPma, btnDeployUi, btnEnvCheck, btnTunnel, btnCopyUrl;
         private TextBox txtSearch;
         private StackPanel projectListPanel;
         private DispatcherTimer pollTimer;
@@ -30,6 +31,9 @@ namespace SolsticeCommand
         private System.Drawing.Icon icoOnline, icoPartial, icoOffline;
         private bool isQuitting = false;
         private List<string> allProjects = new List<string>();
+        private List<string> recentProjects = new List<string>();
+        private Process tunnelProc = null;
+        private string activeTunnelUrl = "";
 
         // Auto-detected Stack State (WAMP or XAMPP)
         private string stackMode = "WAMP"; // "WAMP" or "XAMPP" or "NONE"
@@ -57,7 +61,7 @@ namespace SolsticeCommand
         {
             Title = "SOLSTICE GRID // Local Server";
             Width = 780;
-            Height = 490;
+            Height = 525;
             WindowStyle = WindowStyle.None;
             AllowsTransparency = true;
             Background = System.Windows.Media.Brushes.Transparent;
@@ -185,6 +189,7 @@ namespace SolsticeCommand
             menu.Items.Add("-");
             menu.Items.Add("Quit Solstice Grid", null, (s, e) =>
             {
+                StopTunnel();
                 isQuitting = true;
                 trayIcon.Visible = false;
                 trayIcon.Dispose();
@@ -370,10 +375,10 @@ namespace SolsticeCommand
             stack.Children.Add(row2);
 
             // Row 3: Portable Toolkit (Deploy Web UI to Friend's WAMP/XAMPP + Env Check)
-            var row3 = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+            var row3 = new Grid { Margin = new Thickness(0, 0, 0, 8) };
             row3.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row3.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-            row3.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+            row3.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
 
             btnDeployUi = MakeActionBtn("DEPLOY SOLSTICE WEB UI", false);
             btnEnvCheck = MakeActionBtn("CHECK ENV", false);
@@ -384,6 +389,31 @@ namespace SolsticeCommand
             row3.Children.Add(btnDeployUi);
             row3.Children.Add(btnEnvCheck);
             stack.Children.Add(row3);
+
+            // Row 4: Cloudflare Quick Tunnel
+            var row4 = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            row4.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row4.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+            row4.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+
+            btnTunnel = MakeActionBtn("CF TUNNEL: OFF", false);
+            btnCopyUrl = MakeActionBtn("COPY URL", false);
+            btnCopyUrl.IsEnabled = false;
+            btnTunnel.Click += async (s, e) => await ToggleTunnel();
+            btnCopyUrl.Click += (s, e) =>
+            {
+                if (!string.IsNullOrEmpty(activeTunnelUrl))
+                {
+                    Clipboard.SetText(activeTunnelUrl);
+                    lblFooter.Foreground = BrushGreen;
+                    lblFooter.Text = "COPIED // " + activeTunnelUrl;
+                }
+            };
+            Grid.SetColumn(btnTunnel, 0);
+            Grid.SetColumn(btnCopyUrl, 2);
+            row4.Children.Add(btnTunnel);
+            row4.Children.Add(btnCopyUrl);
+            stack.Children.Add(row4);
 
             lblFooter = new TextBlock
             {
@@ -591,8 +621,10 @@ namespace SolsticeCommand
         private void LoadProjects()
         {
             allProjects.Clear();
+            recentProjects.Clear();
             if (Directory.Exists(webRoot))
             {
+                var dirInfos = new List<DirectoryInfo>();
                 foreach (var dir in Directory.GetDirectories(webRoot))
                 {
                     string name = System.IO.Path.GetFileName(dir);
@@ -603,10 +635,84 @@ namespace SolsticeCommand
                         name.Equals("webalizer", StringComparison.OrdinalIgnoreCase))
                         continue;
                     allProjects.Add(name);
+                    dirInfos.Add(new DirectoryInfo(dir));
                 }
                 allProjects.Sort(StringComparer.OrdinalIgnoreCase);
+
+                string recentFile = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "recent.txt");
+                if (File.Exists(recentFile))
+                {
+                    foreach (var line in File.ReadAllLines(recentFile))
+                    {
+                        string r = line.Trim();
+                        if (r.Length > 0 && allProjects.Contains(r) && !recentProjects.Contains(r))
+                            recentProjects.Add(r);
+                    }
+                }
+                if (recentProjects.Count == 0)
+                {
+                    dirInfos.Sort((a, b) => b.LastWriteTime.CompareTo(a.LastWriteTime));
+                    for (int i = 0; i < Math.Min(4, dirInfos.Count); i++)
+                        recentProjects.Add(dirInfos[i].Name);
+                }
             }
             RenderProjectList(txtSearch != null ? txtSearch.Text : "");
+        }
+
+        private void RecordRecent(string projName)
+        {
+            try
+            {
+                recentProjects.RemoveAll(x => x.Equals(projName, StringComparison.OrdinalIgnoreCase));
+                recentProjects.Insert(0, projName);
+                if (recentProjects.Count > 4) recentProjects.RemoveRange(4, recentProjects.Count - 4);
+                string recentFile = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "recent.txt");
+                File.WriteAllLines(recentFile, recentProjects.ToArray());
+                RenderProjectList(txtSearch != null ? txtSearch.Text : "");
+            }
+            catch { }
+        }
+
+        private void AddProjectButton(string projName, bool isRecent)
+        {
+            var btn = new Button
+            {
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Background = BrushObsidian,
+                BorderBrush = isRecent ? BrushBlue : BrushBorder,
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(0, 0, 0, 6),
+                Padding = new Thickness(10, 7, 10, 7),
+                Cursor = Cursors.Hand
+            };
+            btn.Style = MakeFlatButtonStyle(BrushObsidian, BrushSurfaceHover, isRecent ? BrushBlue : BrushBorder, BrushCyan);
+
+            var row = new Grid();
+            row.Children.Add(new TextBlock
+            {
+                Text = projName,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = BrushText,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            row.Children.Add(new TextBlock
+            {
+                Text = isRecent ? "RECENT ↗" : "OPEN ↗",
+                FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+                FontSize = 9.5,
+                FontWeight = FontWeights.Bold,
+                Foreground = BrushCyan,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            btn.Content = row;
+            btn.Click += (s, e) =>
+            {
+                RecordRecent(projName);
+                OpenUrl(baseUrl + Uri.EscapeDataString(projName) + "/");
+            };
+            projectListPanel.Children.Add(btn);
         }
 
         private void RenderProjectList(string filter)
@@ -615,46 +721,36 @@ namespace SolsticeCommand
             string q = (filter ?? "").Trim().ToLowerInvariant();
             int shown = 0;
 
-            foreach (var name in allProjects)
+            if (q.Length == 0 && recentProjects.Count > 0)
             {
-                if (q.Length > 0 && !name.ToLowerInvariant().Contains(q)) continue;
-                shown++;
-
-                string projName = name;
-                var btn = new Button
+                projectListPanel.Children.Add(new TextBlock
                 {
-                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                    Background = BrushObsidian,
-                    BorderBrush = BrushBorder,
-                    BorderThickness = new Thickness(1),
-                    Margin = new Thickness(0, 0, 0, 6),
-                    Padding = new Thickness(10, 7, 10, 7),
-                    Cursor = Cursors.Hand
-                };
-                btn.Style = MakeFlatButtonStyle(BrushObsidian, BrushSurfaceHover, BrushBorder, BrushBlue);
-
-                var row = new Grid();
-                row.Children.Add(new TextBlock
-                {
-                    Text = projName,
-                    FontSize = 12,
-                    FontWeight = FontWeights.SemiBold,
-                    Foreground = BrushText,
-                    VerticalAlignment = VerticalAlignment.Center
-                });
-                row.Children.Add(new TextBlock
-                {
-                    Text = "OPEN ↗",
+                    Text = "RECENT",
                     FontFamily = new System.Windows.Media.FontFamily("Consolas"),
                     FontSize = 9.5,
                     FontWeight = FontWeights.Bold,
                     Foreground = BrushCyan,
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    VerticalAlignment = VerticalAlignment.Center
+                    Margin = new Thickness(0, 0, 0, 5)
                 });
-                btn.Content = row;
-                btn.Click += (s, e) => OpenUrl(baseUrl + Uri.EscapeDataString(projName) + "/");
-                projectListPanel.Children.Add(btn);
+                foreach (var r in recentProjects)
+                    AddProjectButton(r, true);
+
+                projectListPanel.Children.Add(new TextBlock
+                {
+                    Text = "ALL WORKSPACES",
+                    FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+                    FontSize = 9.5,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = BrushMuted,
+                    Margin = new Thickness(0, 6, 0, 5)
+                });
+            }
+
+            foreach (var name in allProjects)
+            {
+                if (q.Length > 0 && !name.ToLowerInvariant().Contains(q)) continue;
+                shown++;
+                AddProjectButton(name, false);
             }
             lblProjCount.Text = string.Format("{0} APPS", shown);
         }
@@ -912,6 +1008,109 @@ namespace SolsticeCommand
                 }
             }
             catch { return false; }
+        }
+
+        private string FindCloudflared()
+        {
+            string localCf = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cloudflared.exe");
+            string[] candidates = new string[]
+            {
+                localCf,
+                @"C:\Program Files (x86)\cloudflared\cloudflared.exe",
+                @"C:\Program Files\cloudflared\cloudflared.exe"
+            };
+            foreach (var c in candidates)
+            {
+                if (File.Exists(c)) return c;
+            }
+            if (CheckCmd("cloudflared", "--version")) return "cloudflared";
+            return null;
+        }
+
+        private async Task ToggleTunnel()
+        {
+            if (tunnelProc != null && !tunnelProc.HasExited)
+            {
+                StopTunnel();
+                lblFooter.Foreground = BrushMuted;
+                lblFooter.Text = "CLOUDFLARE TUNNEL STOPPED.";
+                return;
+            }
+
+            string cfExe = FindCloudflared();
+            if (cfExe == null)
+            {
+                lblFooter.Foreground = BrushCyan;
+                lblFooter.Text = "cloudflared.exe NOT FOUND (Run: winget install Cloudflare.cloudflared)";
+                return;
+            }
+
+            btnTunnel.IsEnabled = false;
+            btnTunnel.Content = "STARTING TUNNEL...";
+            lblFooter.Foreground = BrushCyan;
+            lblFooter.Text = "OPENING CLOUDFLARE QUICK TUNNEL...";
+            activeTunnelUrl = "";
+            btnCopyUrl.IsEnabled = false;
+
+            await Task.Run(() =>
+            {
+                try
+                {
+                    var psi = new ProcessStartInfo(cfExe, "tunnel --url http://127.0.0.1:80")
+                    {
+                        CreateNoWindow = true,
+                        UseShellExecute = false,
+                        RedirectStandardError = true,
+                        RedirectStandardOutput = true
+                    };
+                    tunnelProc = Process.Start(psi);
+                    DateTime deadline = DateTime.Now.AddSeconds(15);
+                    var rx = new Regex(@"https://[a-zA-Z0-9\-]+\.trycloudflare\.com");
+
+                    while (tunnelProc != null && !tunnelProc.HasExited && DateTime.Now < deadline)
+                    {
+                        string line = tunnelProc.StandardError.ReadLine();
+                        if (line == null) break;
+                        var m = rx.Match(line);
+                        if (m.Success)
+                        {
+                            activeTunnelUrl = m.Value;
+                            break;
+                        }
+                    }
+                }
+                catch { }
+            });
+
+            btnTunnel.IsEnabled = true;
+            if (!string.IsNullOrEmpty(activeTunnelUrl))
+            {
+                try { Clipboard.SetText(activeTunnelUrl); } catch { }
+                btnTunnel.Content = "CF TUNNEL: ON (STOP)";
+                btnCopyUrl.IsEnabled = true;
+                lblFooter.Foreground = BrushGreen;
+                lblFooter.Text = "LIVE (COPIED!) // " + activeTunnelUrl;
+            }
+            else
+            {
+                StopTunnel();
+                lblFooter.Foreground = BrushCyan;
+                lblFooter.Text = "TUNNEL FAILED OR TIMED OUT (Check internet)";
+            }
+        }
+
+        private void StopTunnel()
+        {
+            try
+            {
+                if (tunnelProc != null && !tunnelProc.HasExited)
+                    tunnelProc.Kill();
+            }
+            catch { }
+            tunnelProc = null;
+            activeTunnelUrl = "";
+            if (btnTunnel != null) btnTunnel.Content = "CF TUNNEL: OFF";
+            if (btnCopyUrl != null) btnCopyUrl.IsEnabled = false;
         }
 
         private bool StartSvc(string name)
